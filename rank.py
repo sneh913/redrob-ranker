@@ -321,6 +321,39 @@ def calculate_candidate_score(c):
     gh_score = c['redrob_signals'].get('github_activity_score', -1)
     if gh_score >= 50:
         mult += 0.1
+
+    # Offer acceptance rate (-1 to 1.0, -1 means no prior offers = neutral)
+    offer_rate = c['redrob_signals'].get('offer_acceptance_rate', -1)
+    if offer_rate >= 0.7:
+        mult += 0.15
+    elif offer_rate >= 0 and offer_rate < 0.3:
+        mult -= 0.15
+    # if offer_rate == -1, no change (no prior offer history, neutral)
+
+    # Saved by recruiters - social proof signal
+    saved_count = c['redrob_signals'].get('saved_by_recruiters_30d', 0)
+    if saved_count >= 10:
+        mult += 0.1
+    elif saved_count >= 5:
+        mult += 0.05
+
+    # Profile completeness - filters out sloppy/incomplete profiles
+    completeness = c['redrob_signals'].get('profile_completeness_score', 50)
+    if completeness >= 90:
+        mult += 0.05
+    elif completeness < 50:
+        mult -= 0.1
+
+    # Verification signals - basic trust/fraud check
+    verified_count = sum([
+        c['redrob_signals'].get('verified_email', False),
+        c['redrob_signals'].get('verified_phone', False),
+        c['redrob_signals'].get('linkedin_connected', False)
+    ])
+    if verified_count == 3:
+        mult += 0.05
+    elif verified_count == 0:
+        mult -= 0.1
         
     # Bound multiplier and apply
     final_mult = max(0.5, min(1.4, mult))
