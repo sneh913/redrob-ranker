@@ -459,10 +459,10 @@ def score_education(c):
 def generate_candidate_reasoning(c, rank):
     """Generate concise, honest reasoning based on actual candidate signals and qualifications."""
     profile = c['profile']
-    title = profile.get('current_title', '')
-    company = profile.get('current_company', '')
+    title = profile.get('current_title', '').strip()
+    company = profile.get('current_company', '').strip()
     years = profile.get('years_of_experience', 0)
-    loc = profile.get('location', '')
+    loc = profile.get('location', '').strip()
     notice = c['redrob_signals'].get('notice_period_days', 90)
     
     # Extract 1-2 matched skills from priority list
@@ -476,12 +476,17 @@ def generate_candidate_reasoning(c, rank):
     
     # Check product company background
     history = c.get('career_history', [])
-    product_companies_worked = [job.get('company', '') for job in history if job.get('company', '') in PRODUCT_COMPANIES]
+    product_companies_worked = [job.get('company', '').strip() for job in history if job.get('company', '').strip() in PRODUCT_COMPANIES]
+    company_mention = ""
+    if product_companies_worked:
+        company_mention = product_companies_worked[0]
+    elif company:
+        company_mention = company
+    
+    # Build company text with proper spacing
     company_text = ""
-    if product_companies_worked and company_text == "":
-        company_text = f" at {product_companies_worked[0]}"
-    elif company and company_text == "":
-        company_text = f" at {company}"
+    if company_mention:
+        company_text = f" at {company_mention}"
     
     # Check education tier
     edu_score_val = c.get('_edu_score', score_education(c))
@@ -518,19 +523,18 @@ def generate_candidate_reasoning(c, rank):
     country = profile.get('country', '').lower()
     if country != "india" and not c['redrob_signals'].get('willing_to_relocate'):
         concerns.append(f"based in {loc}, relocation not confirmed")
-    if offer_rate >= 0 and offer_rate < 0.3:
-        # Already in signal_text
-        pass
     
     concern_text = ""
     if concerns:
         concern_text = f". {', '.join(concerns).capitalize()}."
     
-    # Build final reasoning (1-2 sentences, natural language)
+    # Build final reasoning with proper spacing (1-2 sentences, natural language)
+    base_text = f"{title}{company_text} with {years:.1f}y experience{skill_text}{edu_text}"
+    
     if signal_text:
-        reasoning = f"{title}{company_text} with {years:.1f}y experience{skill_text}{edu_text}; {signal_text}{concern_text}"
+        reasoning = f"{base_text}; {signal_text}{concern_text}"
     else:
-        reasoning = f"{title}{company_text} with {years:.1f}y experience{skill_text}{edu_text}{concern_text}"
+        reasoning = f"{base_text}{concern_text}"
     
     return reasoning
 
