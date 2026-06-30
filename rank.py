@@ -61,7 +61,40 @@ PRODUCT_COMPANIES = {
     "Pied Piper", "Hooli", "Initech", "Dunder Mifflin", "Wayne Enterprises",
     "Stark Industries", "Globex Inc", "Acme Corp", "Razorpay", "Swiggy",
     "Zomato", "CRED", "Flipkart", "InMobi", "upGrad", "Unacademy",
-    "Vedantu", "PharmEasy", "Ola", "Nykaa", "Zoho", "Freshworks"
+    "Vedantu", "PharmEasy", "Ola", "Nykaa", "Zoho", "Freshworks",
+    "Zerodha", "Groww", "CoinDCX", "CoinSwitch", "upstox", "Khatabook", "OkCredit",
+    "Dunzo", "BigBasket", "Grofers", "Blinkit", "Urban Company", "Lenskart", "boAt",
+    "Mamaearth", "Licious", "CureFit", "Cult.fit", "PharmEasy", "1mg", "Practo",
+    "Byju's", "Physics Wallah", "Toppr", "Cuemath", "Whitehat Jr",
+    "InMobi", "MoEngage", "CleverTap", "Chargebee", "Postman", "BrowserStack",
+    "Druva", "Icertis", "Innovaccer", "Hasura", "Apna", "Khatabook",
+    "ShareChat", "Moj", "Josh", "Koo", "Meesho", "Snapdeal",
+    "Zepto", "Swiggy Instamart", "Country Delight", "Licious",
+    "Sarvam AI", "Krutrim", "Fractal Analytics", "Mu Sigma", "Tiger Analytics",
+    "Observe.AI", "Yellow.ai", "Haptik", "Verloop", "Gupshup",
+    "Google", "Microsoft", "Amazon", "Meta", "Apple", "Netflix", "Uber", "Airbnb",
+    "Salesforce", "Adobe", "Atlassian", "Stripe", "Spotify", "LinkedIn", "Twitter",
+    "ByteDance", "Walmart Labs", "Target India", "Goldman Sachs Engineering",
+    "Morgan Stanley Technology", "JPMorgan Chase Tech", "Visa", "Mastercard",
+    "PayPal", "Intuit", "ServiceNow", "Workday", "Splunk", "Snowflake", "Databricks",
+    "MongoDB", "Confluent", "HashiCorp", "GitLab", "GitHub", "Figma", "Notion",
+    "Canva", "Zoom", "Slack", "Dropbox"
+}
+
+TIER_1_COLLEGES = {
+    "iit bombay", "iit delhi", "iit madras", "iit kanpur", "iit kharagpur",
+    "iit roorkee", "iit guwahati", "iit hyderabad", "iit bhubaneswar",
+    "iit indore", "iit mandi", "iit ropar", "iit gandhinagar", "iit jodhpur",
+    "iit patna", "iit varanasi", "iit bhu", "bits pilani", "bits goa",
+    "bits hyderabad", "iiit hyderabad", "iiit delhi", "iiit bangalore",
+    "nit trichy", "nit warangal", "nit surathkal", "nit calicut",
+    "isi kolkata", "iisc bangalore", "iim ahmedabad", "iim bangalore", "iim calcutta"
+}
+
+TIER_2_COLLEGES = {
+    "nit", "vit", "manipal", "thapar", "dtu", "nsit", "iiit", "pec",
+    "coep", "vjti", "spit", "kjsce", "pict", "mit pune", "mit manipal",
+    "bit mesra", "amrita", "srm", "vellore"
 }
 
 def is_honeypot_candidate(c):
@@ -212,6 +245,7 @@ def calculate_candidate_score(c):
     ]
     nice_have_count = sum(nice_to_haves)
     skill_score_final = min(1.0, skill_score + 0.05 * nice_have_count)
+    edu_score = score_education(c)
     
     # 5. Location and Notice Period Score (Weight = 15%)
     loc = c['profile'].get('location', '').lower()
@@ -245,7 +279,8 @@ def calculate_candidate_score(c):
         0.25 * title_score +
         0.15 * exp_score +
         0.20 * product_score +
-        0.25 * skill_score_final +
+        0.20 * skill_score_final +
+        0.05 * edu_score +
         0.15 * loc_notice_score
     )
     
@@ -290,6 +325,25 @@ def calculate_candidate_score(c):
     # Bound multiplier and apply
     final_mult = max(0.5, min(1.4, mult))
     return base_score * final_mult
+
+
+def score_education(c):
+    """Score education tier (Weight = 5%, taken from skill_score weight reduction)."""
+    education = c.get('education', [])
+    if not education:
+        return 0.4  # no info, neutral-low
+    
+    highest_score = 0.4
+    for edu in education:
+        college = edu.get('institution', '').lower()
+        if any(t1 in college for t1 in TIER_1_COLLEGES):
+            highest_score = max(highest_score, 1.0)
+        elif any(t2 in college for t2 in TIER_2_COLLEGES):
+            highest_score = max(highest_score, 0.7)
+        else:
+            highest_score = max(highest_score, 0.5)
+    return highest_score
+
 
 def generate_candidate_reasoning(c, rank):
     """Generate high-quality, non-templated reasoning referencing specific candidate facts."""
