@@ -4,6 +4,8 @@ import gzip
 import csv
 import argparse
 from pathlib import Path
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Real-world founding years of key companies in the dataset
 FOUNDING_YEARS = {
@@ -96,6 +98,79 @@ TIER_2_COLLEGES = {
     "coep", "vjti", "spit", "kjsce", "pict", "mit pune", "mit manipal",
     "bit mesra", "amrita", "srm", "vellore"
 }
+
+JOB_DESCRIPTION_PATH = Path("C:/Users/Admin/OneDrive/Desktop/India_Runs/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/job_description.docx")
+JOB_DESCRIPTION_TEXT = ""
+
+
+def load_job_description():
+    """Load and cache the job description text from the DOCX file once."""
+    global JOB_DESCRIPTION_TEXT
+    if JOB_DESCRIPTION_TEXT:
+        return JOB_DESCRIPTION_TEXT
+
+    if not JOB_DESCRIPTION_PATH.exists():
+        JOB_DESCRIPTION_TEXT = ""
+        return JOB_DESCRIPTION_TEXT
+
+    try:
+        from docx import Document
+        doc = Document(str(JOB_DESCRIPTION_PATH))
+        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
+        JOB_DESCRIPTION_TEXT = "\n".join(paragraphs)
+    except Exception:
+        JOB_DESCRIPTION_TEXT = ""
+    return JOB_DESCRIPTION_TEXT
+
+
+JOB_DESCRIPTION_TEXT = load_job_description()
+
+
+def build_candidate_text(c):
+    """Build a single text blob for TF-IDF matching from candidate profile fields."""
+    parts = []
+
+    profile = c.get("profile", {})
+    if profile.get("current_title"):
+        parts.append(profile.get("current_title"))
+
+    for job in c.get("career_history", []):
+        if job.get("title"):
+            parts.append(job.get("title"))
+        if job.get("company"):
+            parts.append(job.get("company"))
+        for field in ("description", "responsibilities"):
+            value = job.get(field)
+            if isinstance(value, str) and value.strip():
+                parts.append(value)
+
+    for skill in c.get("skills", []):
+        name = skill.get("name")
+        if name:
+            parts.append(name)
+
+    for edu in c.get("education", []):
+        for field in ("degree", "field", "major", "specialization", "program"):
+            value = edu.get(field)
+            if isinstance(value, str) and value.strip():
+                parts.append(value)
+        if edu.get("institution"):
+            parts.append(edu.get("institution"))
+
+    return " ".join(str(p) for p in parts if p)
+
+
+def compute_tfidf_scores(jd_text, all_candidate_texts):
+    """Fit TF-IDF on the JD and candidate texts, then return cosine similarity scores."""
+    if not all_candidate_texts:
+        return []
+
+    documents = [jd_text] + [text or "" for text in all_candidate_texts]
+    vectorizer = TfidfVectorizer(stop_words="english", max_features=500)
+    tfidf_matrix = vectorizer.fit_transform(documents)
+    similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
+    return similarities.tolist()
+
 
 def is_honeypot_candidate(c):
     """Check if the candidate has a subtly impossible profile (honeypot)."""
@@ -274,13 +349,16 @@ def calculate_candidate_score(c):
         
     loc_notice_score = 0.6 * loc_score + 0.4 * notice_score
     
+    tfidf_score = c.get('_tfidf_score', 0.0)
+
     # Weighted base score (out of 1.0)
     base_score = (
         0.25 * title_score +
         0.15 * exp_score +
-        0.20 * product_score +
-        0.20 * skill_score_final +
+        0.15 * product_score +
+        0.15 * skill_score_final +
         0.05 * edu_score +
+        0.10 * tfidf_score +
         0.15 * loc_notice_score
     )
     
@@ -480,6 +558,7 @@ def main():
     honeypot_count = 0
     disqualified_count = 0
     total_processed = 0
+    qualified_candidates = []
     
     with open_func(candidates_path) as f:
         for line in f:
@@ -498,14 +577,21 @@ def main():
             if disq:
                 disqualified_count += 1
                 continue
-                
-            # Step 3: Score candidates
-            score = round(calculate_candidate_score(c), 4)
-            scored_candidates.append((c, score))
+
+            qualified_candidates.append(c)
             
     print(f"Processed {total_processed} total profiles.")
     print(f"Filtered out {honeypot_count} honeypots.")
     print(f"Filtered out {disqualified_count} disqualified profiles.")
+
+    if qualified_candidates:
+        candidate_texts = [build_candidate_text(c) for c in qualified_candidates]
+        tfidf_scores = compute_tfidf_scores(JOB_DESCRIPTION_TEXT, candidate_texts)
+        for c, tfidf_score in zip(qualified_candidates, tfidf_scores):
+            c['_tfidf_score'] = float(tfidf_score)
+            score = round(calculate_candidate_score(c), 4)
+            scored_candidates.append((c, score))
+
     print(f"Scored {len(scored_candidates)} qualified profiles.")
     
     # Step 4: Sort candidates by score descending, break ties by candidate_id ascending
