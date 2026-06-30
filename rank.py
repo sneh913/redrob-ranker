@@ -457,82 +457,81 @@ def score_education(c):
 
 
 def generate_candidate_reasoning(c, rank):
-    """Generate high-quality, non-templated reasoning referencing specific candidate facts."""
+    """Generate concise, honest reasoning based on actual candidate signals and qualifications."""
     profile = c['profile']
-    title = profile.get('current_title')
-    company = profile.get('current_company')
-    years = profile.get('years_of_experience')
-    loc = profile.get('location')
-    notice = c['redrob_signals'].get('notice_period_days')
+    title = profile.get('current_title', '')
+    company = profile.get('current_company', '')
+    years = profile.get('years_of_experience', 0)
+    loc = profile.get('location', '')
+    notice = c['redrob_signals'].get('notice_period_days', 90)
     
-    # Extract matching skills
-    skills_list = [s.get('name') for s in c.get('skills', [])]
-    skills_lower = [s.lower() for s in skills_list]
+    # Extract 1-2 matched skills from priority list
+    skills_list = [s.get('name', '').lower() for s in c.get('skills', [])]
+    priority_skills = ["embeddings", "vector search", "rag", "retrieval", "ranking", "nlp", "llm", 
+                      "fine-tuning", "faiss", "semantic search", "lora", "peft"]
+    matched_skills = [s for s in skills_list if any(p in s for p in priority_skills)]
+    skill_text = ""
+    if matched_skills:
+        skill_text = f" ({', '.join(matched_skills[:2])})"
     
-    vectordbs = ["pinecone", "weaviate", "qdrant", "milvus", "opensearch", "elasticsearch", "faiss", "chroma"]
-    retrievals = ["retrieval", "embeddings", "embedding", "search", "semantic search"]
-    evals = ["ndcg", "mrr", "map", "evaluation"]
-    nice_to_haves = ["fine-tuning", "lora", "peft", "xgboost", "learning-to-rank", "distributed systems", "inference optimization"]
+    # Check product company background
+    history = c.get('career_history', [])
+    product_companies_worked = [job.get('company', '') for job in history if job.get('company', '') in PRODUCT_COMPANIES]
+    company_text = ""
+    if product_companies_worked and company_text == "":
+        company_text = f" at {product_companies_worked[0]}"
+    elif company and company_text == "":
+        company_text = f" at {company}"
     
-    matched_vdb = [s for s in skills_list if s.lower() in vectordbs]
-    matched_ret = [s for s in skills_list if any(w in s.lower() for w in retrievals)]
-    matched_eval = [s for s in skills_list if any(w in s.lower() for w in evals)]
-    matched_nice = [s for s in skills_list if any(w in s.lower() for w in nice_to_haves)]
+    # Check education tier
+    edu_score_val = c.get('_edu_score', score_education(c))
+    edu_text = ""
+    if edu_score_val >= 1.0:
+        edu_text = "; strong educational background"
     
-    sent1 = f"Strong fit as a {title} from {company} with {years:.1f} years of experience."
+    # Extract ONE behavioral signal
+    signal_text = ""
     
-    skill_mentions = []
-    if matched_ret:
-        skill_mentions.append(matched_ret[0])
-    if matched_vdb and matched_vdb[0] not in skill_mentions:
-        skill_mentions.append(matched_vdb[0])
-    if matched_eval and matched_eval[0] not in skill_mentions:
-        skill_mentions.append(matched_eval[0])
-        
-    skill_phrase = ""
-    if skill_mentions:
-        skill_phrase = f"Proven hands-on experience with {', '.join(skill_mentions)}"
-    else:
-        skill_phrase = "Strong machine learning engineering background"
-        
-    if matched_nice:
-        skill_phrase += f" and {matched_nice[0]}"
-        
-    sent2 = f"{skill_phrase}."
+    # Priority 1: Offer acceptance rate
+    offer_rate = c['redrob_signals'].get('offer_acceptance_rate', -1)
+    if offer_rate >= 0.7:
+        signal_text = f"High offer acceptance rate ({int(offer_rate * 100)}%)"
+    elif offer_rate >= 0 and offer_rate < 0.3:
+        signal_text = f"Low offer acceptance rate ({int(offer_rate * 100)}%) — caution flag"
     
-    loc_phrase = ""
-    if "noida" in loc.lower() or "pune" in loc.lower():
-        loc_phrase = f"Ideally located in {loc}"
-    else:
-        loc_phrase = f"Located in {loc}"
-        
-    notice_phrase = ""
-    if notice <= 30:
-        notice_phrase = f"with a quick {notice}-day notice period"
-    else:
-        notice_phrase = f"with a {notice}-day notice period"
-        
+    # Priority 2: Recruiter response rate (if no offer rate)
+    if not signal_text:
+        resp_rate = c['redrob_signals'].get('recruiter_response_rate', 0.0)
+        if resp_rate > 0:
+            signal_text = f"{int(resp_rate * 100)}% recruiter response rate"
+    
+    # Priority 3: Last active date (if no other signals)
+    if not signal_text:
+        last_act = c['redrob_signals'].get('last_active_date', '')
+        if last_act >= '2026-05-20':
+            signal_text = "recently active"
+    
+    # Build concerns section
     concerns = []
     if notice > 60:
-        concerns.append(f"{notice}d notice")
-    if years < 5.0:
-        concerns.append(f"{years:.1f}y experience (a bit junior)")
-    if years > 9.0:
-        concerns.append(f"{years:.1f}y experience (more senior)")
-    if "noida" not in loc.lower() and "pune" not in loc.lower() and not c['redrob_signals'].get('willing_to_relocate'):
-        concerns.append("needs relocation support")
-        
-    concern_phrase = ""
+        concerns.append(f"notice period {notice}d")
+    country = profile.get('country', '').lower()
+    if country != "india" and not c['redrob_signals'].get('willing_to_relocate'):
+        concerns.append(f"based in {loc}, relocation not confirmed")
+    if offer_rate >= 0 and offer_rate < 0.3:
+        # Already in signal_text
+        pass
+    
+    concern_text = ""
     if concerns:
-        concern_phrase = f" Note: {', '.join(concerns)}."
-        
-    if rank <= 10:
-        reasoning = f"{sent1} {sent2} Perfectly fits the Pune/Noida hybrid setup {notice_phrase}.{concern_phrase}"
-    elif rank <= 50:
-        reasoning = f"{sent1} {sent2} Good location fit ({loc}) {notice_phrase}.{concern_phrase}"
+        concern_text = f". {', '.join(concerns).capitalize()}."
+    
+    # Build final reasoning (1-2 sentences, natural language)
+    if signal_text:
+        reasoning = f"{title}{company_text} with {years:.1f}y experience{skill_text}{edu_text}; {signal_text}{concern_text}"
     else:
-        reasoning = f"Good technical match with {years:.1f} years experience, skilled in {skill_mentions[0] if skill_mentions else 'ML'}.{concern_phrase}"
-        
+        reasoning = f"{title}{company_text} with {years:.1f}y experience{skill_text}{edu_text}{concern_text}"
+    
     return reasoning
 
 def main():
@@ -589,6 +588,7 @@ def main():
         tfidf_scores = compute_tfidf_scores(JOB_DESCRIPTION_TEXT, candidate_texts)
         for c, tfidf_score in zip(qualified_candidates, tfidf_scores):
             c['_tfidf_score'] = float(tfidf_score)
+            c['_edu_score'] = score_education(c)
             score = round(calculate_candidate_score(c), 4)
             scored_candidates.append((c, score))
 
